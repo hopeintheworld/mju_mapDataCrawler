@@ -1,142 +1,103 @@
-import json
-import time
-from time import sleep
-import csv
+import requests
+import pandas as pd
+import numpy as np
+import requests
+import collections
 
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
-
-# --크롬창을 숨기고 실행-- driver에 options를 추가해주면된다
-# options = webdriver.ChromeOptions()
-# options.add_argument('headless')
-
-url = 'https://map.kakao.com/'
-driver = webdriver.Chrome('./chromedriver')  # 드라이버 경로
-# driver = webdriver.Chrome('./chromedriver',chrome_options=options) # 크롬창 숨기기
-
-
-def time_wait(num, code):
-    try:
-        wait = WebDriverWait(driver, num).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, code)))
-    except:
-        print(code, "Can't find CSS tag.")
-        driver.quit()
-    return wait
-
-def search_keyword(key_word):
-    time_wait(10, '#search\.keyword\.query')
-
-    search = driver.find_element(By.CSS_SELECTOR, '#search\.keyword\.query')
-    search.send_keys(key_word)
-    search.send_keys(Keys.ENTER)
-
-    sleep(1)
-
-    place_tab = driver.find_element(By.CSS_SELECTOR, '#info\.main\.options > li.option1 > a')
-    place_tab.send_keys(Keys.ENTER)
+##카카오 API
+def whole_region(keyword, start_x,start_y,end_x,end_y):
+    #print(start_x,start_y,end_x,end_y)
+    page_num = 1
+    # 데이터가 담길 리스트
+    all_data_list = []
     
-    
-    sleep(1)
+    while(1):
+        url = 'https://dapi.kakao.com/v2/local/search/keyword.json'
+        params = {'query': keyword,'page': page_num, 
+                 'rect': f'{start_x},{start_y},{end_x},{end_y}'}
+        headers = {"Authorization": "KakaoAK 본인의 카카오 API 키를 넣어야 한다."}
+        ## 입력예시 -->> headers = {"Authorization": "KakaoAK f64acbasdfasdfasf70e4f52f737760657"}
+        resp = requests.get(url, params=params, headers=headers)
 
-def kakao_place_list_crawl(current_page):
-    time.sleep(2)
-    
-    place_dict_list = []
-    
-    place_list = driver.find_elements(By.CSS_SELECTOR, "#info\.search\.place\.list > li")
-    names = driver.find_elements(By.CSS_SELECTOR, '#info\.search\.place\.list > li > div.head_item.clickArea > strong > a.link_name')
-    addresses = driver.find_elements(By.CSS_SELECTOR, '#info\.search\.place\.list > li > div.info_item > div.addr > p:nth-child(1)')
-    other_addresses = driver.find_elements(By.CSS_SELECTOR, '#info\.search\.place\.list > li > div.info_item > div.addr > p:nth-child(2)')
-    phone_nums = driver.find_elements(By.CSS_SELECTOR, '#info\.search\.place\.list > li > div.info_item > div.contact.clickArea > span.phone')
-    
-    for index in range(len(place_list)):
-        place_dict = {"_id":index + (current_page-1)*15, "name": "", "street_name_address": "", "street_number_address":"", "phone_num": ""}
+        search_count = resp.json()['meta']['total_count']
+        print('총 개수',search_count)
         
-        # 장소 이름
-        place_dict["name"] = names[index].text
-        #names[index] => A Selenium WebElement Class. It has text attribute that makes data to text type.
+        if search_count > 45:
+            print('좌표 4등분')
+            dividing_x = (start_x + end_x) / 2
+            dividing_y = (start_y + end_y) / 2
+            ## 4등분 중 왼쪽 아래
+            all_data_list.extend(whole_region(keyword, start_x,start_y,dividing_x,dividing_y))
+            ## 4등분 중 오른쪽 아래
+            all_data_list.extend(whole_region(keyword, dividing_x,start_y,end_x,dividing_y))
+            ## 4등분 중 왼쪽 위
+            all_data_list.extend(whole_region(keyword, start_x,dividing_y,dividing_x,end_y))
+            ## 4등분 중 오른쪽 위
+            all_data_list.extend(whole_region(keyword, dividing_x,dividing_y,end_x,end_y))
+            return all_data_list
         
-        # 장소 도로명 주소
-        place_dict["street_name_address"] = addresses[index].text
-        
-        # 장소 지번 주소
-        place_dict["street_number_address"] = other_addresses[index].text
-        
-        # 연락처
-        place_dict["phone_num"] = phone_nums[index].text if phone_nums[index].text!="" else "null"
-        
-        # Dictionary data를 array에 추가.
-        place_dict_list.append(place_dict)
-        
-    print(place_dict_list)
-    return place_dict_list
-
-def kakao_change_page():
-    kakao_place = []
-    current_page = 1
-    page_index = 1
-    error_cnt = 0    
-    
-    while 1:
-        # 페이지 넘어가며 출력
-        try:
-            # 페이지 크롤링
-            print("현재 페이지 크롤링 : ", current_page)
-            print("페이지 인덱스 : ", page_index)
-            crawl_result = kakao_place_list_crawl(current_page)
-            
-            kakao_place += crawl_result
-            sleep(1)
-            
-            # 한 페이지에 장소 개수가 15개 미만이라면 해당 페이지는 마지막 페이지
-            if len(crawl_result) < 15:
-                print("마지막 페이지")
-                break
-            
-            # (8) 다섯번째 페이지까지 왔다면 다음 버튼을 누르고 page2 = 0으로 초기화
-            if page_index == 5:
-                driver.find_element(By.XPATH, '//*[@id="info.search.page.next"]').send_keys(Keys.ENTER)
-                page_index = 1
+        else:
+            if resp.json()['meta']['is_end']:
+                all_data_list.extend(resp.json()['documents'])
+                return all_data_list
+            # 아니면 다음 페이지로 넘어가서 데이터 저장
+            else:
+                print('다음페이지')
+                page_num += 1
+                all_data_list.extend(resp.json()['documents'])
                 
-                sleep(1)
-            elif page_index < 5:
-                # (7) 페이지 번호 클릭
-                page_index += 1
-                driver.find_element(By.XPATH, f'//*[@id="info.search.page.no{page_index}"]').send_keys(Keys.ENTER)
-                
-                sleep(1)
-            elif not driver.find_element(By.XPATH, '//*[@id="info.search.page.next"]').is_enabled():
-                # 다음 버튼을 누를 수 없다면 마지막 페이지
-                break
+def overlapped_data(keyword, start_x, start_y, next_x, next_y, num_x, num_y):
+    # 최종 데이터가 담길 리스트
+    overlapped_result = []
 
-            current_page += 1
+    # 지도를 사각형으로 나누면서 데이터 받아옴
+    for i in range(1,num_x+1):   ## 1,10
+        end_x = start_x + next_x
+        initial_start_y = start_y
+        for j in range(1,num_y+1):  ## 1,6
+            end_y = initial_start_y + next_y
+            each_result= whole_region(keyword, start_x,initial_start_y,end_x,end_y)
+            overlapped_result.extend(each_result)
+            initial_start_y = end_y
+        start_x = end_x
+    
+    return overlapped_result
 
-        except Exception as e:
-            error_cnt += 1
-            
-            if error_cnt > 3:
-                break
-            
-    return kakao_place
+# 시작 x 좌표 및 증가값
+keyword = 'keyword'
+start_x = 125.63
+start_y = 32.93
+next_x = 1
+next_y = 1
+num_x = 4
+num_y = 6
 
-#START
-driver.get(url)
+overlapped_result = overlapped_data(keyword, start_x, start_y, next_x, next_y, num_x, num_y)
 
-# 카카오맵 "스터디 카페" 키워드 검색.
-key_word = '스터디 카페'
-search_keyword(key_word)
-result = kakao_change_page()
+# 최종 데이터가 담긴 리스트 중복값 제거
+results = list(map(dict, collections.OrderedDict.fromkeys(tuple(sorted(d.items())) for d in overlapped_result)))
+X = []
+Y = []
+stores = []
+road_address = []
+address_name = []
+place_url = []
+phone = []
+ID = []
+for place in results:
+    
+    ID.append(place['id'])
+    stores.append(place['place_name'])
+    road_address.append(place['road_address_name'])
+    address_name.append(place['address_name'])    
+    phone.append(place['phone'])
+    X.append(float(place['x']))
+    Y.append(float(place['y']))
+    place_url.append(place['place_url'])
 
-# CSV 파일로 변환
-labels = ["_id", "name", "street_name_address", "street_number_address", "phone_num"]
+    ar = np.array([ID,stores,road_address,address_name,phone,X, Y,place_url]).T
+    df = pd.DataFrame(ar, columns = ['ID','stores','road_address','address_name','phone','X', 'Y','place_url'])
+    
+print('total_reuslt_number = ',len(df))
 
-with open("study_cafe.csv", "w") as file:
-    writer = csv.DictWriter(file, fieldnames=labels)
-    writer.writeheader()
-    writer.writerows(result)
-
-driver.quit()
+df.to_csv("path\file_name.csv", na_rep='null', encoding='ANSI')
