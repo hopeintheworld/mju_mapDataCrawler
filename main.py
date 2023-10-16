@@ -1,6 +1,7 @@
 import json
 import time
 from time import sleep
+import csv
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -53,7 +54,7 @@ def kakao_place_list_crawl(current_page):
     phone_nums = driver.find_elements(By.CSS_SELECTOR, '#info\.search\.place\.list > li > div.info_item > div.contact.clickArea > span.phone')
     
     for index in range(len(place_list)):
-        place_dict = {"_id":index + (current_page-1)*5, "name": "", "street_name_address": "", "street_number_adress":"", "phone_num": ""}
+        place_dict = {"_id":index + (current_page-1)*15, "name": "", "street_name_address": "", "street_number_address":"", "phone_num": ""}
         
         # 장소 이름
         place_dict["name"] = names[index].text
@@ -63,7 +64,7 @@ def kakao_place_list_crawl(current_page):
         place_dict["street_name_address"] = addresses[index].text
         
         # 장소 지번 주소
-        place_dict["street_number_adress"] = other_addresses[index].text
+        place_dict["street_number_address"] = other_addresses[index].text
         
         # 연락처
         place_dict["phone_num"] = phone_nums[index].text if phone_nums[index].text!="" else "null"
@@ -87,8 +88,14 @@ def kakao_change_page():
             print("현재 페이지 크롤링 : ", current_page)
             print("페이지 인덱스 : ", page_index)
             crawl_result = kakao_place_list_crawl(current_page)
+            
             kakao_place += crawl_result
             sleep(1)
+            
+            # 한 페이지에 장소 개수가 15개 미만이라면 해당 페이지는 마지막 페이지
+            if len(crawl_result) < 15:
+                print("마지막 페이지")
+                break
             
             # (8) 다섯번째 페이지까지 왔다면 다음 버튼을 누르고 page2 = 0으로 초기화
             if page_index == 5:
@@ -104,10 +111,6 @@ def kakao_change_page():
                 sleep(1)
             elif not driver.find_element(By.XPATH, '//*[@id="info.search.page.next"]').is_enabled():
                 # 다음 버튼을 누를 수 없다면 마지막 페이지
-                break
-                
-            # 한 페이지에 장소 개수가 15개 미만이라면 해당 페이지는 마지막 페이지
-            if len(crawl_result) < 15:
                 break
 
             current_page += 1
@@ -128,6 +131,12 @@ key_word = '스터디 카페'
 search_keyword(key_word)
 result = kakao_change_page()
 
-print(len(result))
+# CSV 파일로 변환
+labels = ["_id", "name", "street_name_address", "street_number_address", "phone_num"]
+
+with open("study_cafe.csv", "w") as file:
+    writer = csv.DictWriter(file, fieldnames=labels)
+    writer.writeheader()
+    writer.writerows(result)
 
 driver.quit()

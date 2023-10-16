@@ -1,3 +1,5 @@
 ## 파일 무시
 chromedriver.exe
 LICENSE.chromedriver
+
+*.csv
